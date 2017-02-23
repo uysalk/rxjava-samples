@@ -1,5 +1,4 @@
 import io.reactivex.Flowable;
-import io.reactivex.Observable;
 import retrofit2.http.GET;
 import retrofit2.http.Path;
 
@@ -14,7 +13,7 @@ public interface GitHubService {
 
 
     @GET("users/{user}/repos")
-    Observable<List<Repo>> listRepos(@Path("user") String user);
+    Flowable<List<Repo>> listRepos(@Path("user") String user);
 
 
 }
