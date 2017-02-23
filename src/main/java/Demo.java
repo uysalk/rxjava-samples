@@ -2,8 +2,10 @@ import io.reactivex.Observable;
 
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -13,7 +15,7 @@ public class Demo {
 
     static ExecutorService executor = Executors.newFixedThreadPool(10);
 
-    public static void main(String[] args) throws IOException {
+    public static void rmain(String[] args) throws IOException {
 
         IGitHubService ghService = new GHService();
 
@@ -34,20 +36,46 @@ public class Demo {
         executor.shutdown();
     }
 
-    public static void imperativeMain(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception {
 
         GHService ghService = new GHService();
+        int i = 0;
+
+        try{
+            Stream<Repo> repoStream =  callService(ghService,3,1, new Repo(-1, "Dummy repo")) ;
+            List<Repo> repoList = repoStream.collect(Collectors.toList());
+
+            Iterator<Repo> itRepo = repoList.iterator();
+
+            while (itRepo.hasNext()) {
+                System.out.println(itRepo.next());
+            }
+
+        }finally {
+            executor.shutdown();
+        }
+
+
+    }
+    static Stream<Repo> callService(GHService ghService, int tryLimit, int tryCount, Repo fallback) throws Exception{
+
+        try{
         Future<User> fUser = ghService.getUser();
         User user = fUser.get(); // blocking
         Future<Stream<Repo>> fRepos = ghService.getRepos(user.getLogin());
-        Stream<Repo> repos = fRepos.get(); // again blocking
-        Iterator<Repo> itRepo = repos.iterator();
+        return fRepos.get(); // again blocking
 
-        while (itRepo.hasNext()) {
-            System.out.println(itRepo.next());
+
+        }catch (Exception e){
+
+            if (tryCount<tryLimit) return callService(ghService, tryLimit,tryCount+1,fallback ) ;
+            else return Stream.of (fallback);
         }
+
     }
 }
+
+
 interface IGitHubService {
     Future<User> getUser();
     Future<Stream<Repo>> getRepos(String userLogin) throws Exception;
