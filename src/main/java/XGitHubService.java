@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * Created by uysal.kara on 21.02.2017.
  */
-public interface GitHubService {
+public interface XGitHubService {
     @GET("users")
     Flowable<List<User>> listUsers ();
 

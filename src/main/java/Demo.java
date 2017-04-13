@@ -13,36 +13,77 @@ import java.util.stream.Stream;
  */
 public class Demo {
 
-    static ExecutorService executor = Executors.newFixedThreadPool(10);
+    static ExecutorService executor;
 
-    public static void rmain(String[] args) throws IOException {
+    public static void rmainWithRetry(String[] args) throws IOException {
+        executor = Executors.newFixedThreadPool(10);
+        GitHubService ghService = new UnreilableGHService();
+        try {
+            Observable<Repo> streamObservable = Observable.fromFuture(ghService.getUser()).map(
+                    user -> ghService.getRepos(user.getLogin()))
+                    .flatMap(futureWrapped -> Observable.fromFuture(futureWrapped))
+                    .flatMap(repoStream -> {
+                        return Observable.fromIterable(() -> repoStream.iterator());
+                    })
+                    .retry(3)// retry 3 times
+                    .onErrorReturnItem(new Repo(-1, "Dummy repo"))
+                    .cache();
+            streamObservable.subscribe(System.out::println);
 
-        IGitHubService ghService = new GHService();
+            Observable<String> repoNames = streamObservable.map(repo -> repo.getName());  // cached so it wont call the chain again..
+            repoNames.subscribe(System.out::println);
+        } finally {
+            executor.shutdown();
+        }
+    }
 
+
+    public static void main(String[] args) throws IOException {
+        GitHubService ghService = new GitHubServiceImpl();
         Observable<Repo> streamObservable = Observable.fromFuture(ghService.getUser()).map(
                 user -> ghService.getRepos(user.getLogin()))
                 .flatMap(futureWrapped -> Observable.fromFuture(futureWrapped))
                 .flatMap(repoStream -> {
                     return Observable.fromIterable(() -> repoStream.iterator());
                 })
-                //.retry()// retry until success
-                .retry(3)// retry 3 times
-                .onErrorReturnItem(new Repo(-1, "Dummy repo"))
                 .cache();
         streamObservable.subscribe(System.out::println);
 
-        Observable<String> repoNames = streamObservable.map(repo -> repo.getName());  // cached so it wont call the chain again..
+        Observable<String> repoNames = streamObservable.map(repo -> repo.getName());  // cached so it won't re-evaluate the call chain again..
         repoNames.subscribe(System.out::println);
-        executor.shutdown();
+        List<String> list = repoNames.toList().blockingGet(); // blocking is avoided till the last moment
+
+        assert (list.contains("Repo 1"));
     }
 
-    public static void main(String[] args) throws Exception {
 
-        GHService ghService = new GHService();
+    public static void imain(String[] args) throws Exception {
+        GitHubService ghService = new GitHubServiceImpl();
+
+        Future<User> fUser = ghService.getUser();
+        User user = fUser.get(); // blocking
+        Future<Stream<Repo>> fRepos = ghService.getRepos(user.getLogin());
+        Stream<Repo> repoStream = fRepos.get(); // blocking
+
+        Iterator<Repo> itRepo = repoStream.iterator();
+
+        while (itRepo.hasNext()) {
+            System.out.println(itRepo.next());
+        }
+
+
+
+
+    }
+
+
+    public static void imainWithRetry(String[] args) throws Exception {
+        executor = Executors.newFixedThreadPool(10);
+        GitHubService ghService = new UnreilableGHService();
         int i = 0;
 
-        try{
-            Stream<Repo> repoStream =  callService(ghService,3,1, new Repo(-1, "Dummy repo")) ;
+        try {
+            Stream<Repo> repoStream = callService(ghService, 3, 1, new Repo(-1, "Dummy repo"));
             List<Repo> repoList = repoStream.collect(Collectors.toList());
 
             Iterator<Repo> itRepo = repoList.iterator();
@@ -51,37 +92,51 @@ public class Demo {
                 System.out.println(itRepo.next());
             }
 
-        }finally {
+        } finally {
             executor.shutdown();
         }
-
-
     }
-    static Stream<Repo> callService(GHService ghService, int tryLimit, int tryCount, Repo fallback) throws Exception{
-
-        try{
-        Future<User> fUser = ghService.getUser();
-        User user = fUser.get(); // blocking
-        Future<Stream<Repo>> fRepos = ghService.getRepos(user.getLogin());
-        return fRepos.get(); // again blocking
 
 
-        }catch (Exception e){
+    static Stream<Repo> callService(GitHubService ghService, int tryLimit, int tryCount, Repo fallback) throws Exception {
 
-            if (tryCount<tryLimit) return callService(ghService, tryLimit,tryCount+1,fallback ) ;
-            else return Stream.of (fallback);
+        try {
+            Future<User> fUser = ghService.getUser();
+            User user = fUser.get(); // blocking
+            Future<Stream<Repo>> fRepos = ghService.getRepos(user.getLogin());
+            return fRepos.get(); // again blocking
+
+
+        } catch (Exception e) {
+
+            if (tryCount < tryLimit) return callService(ghService, tryLimit, tryCount + 1, fallback);
+            else return Stream.of(fallback);
         }
 
     }
 }
 
 
-interface IGitHubService {
+interface GitHubService {
     Future<User> getUser();
+
     Future<Stream<Repo>> getRepos(String userLogin) throws Exception;
 }
 
-class GHService implements IGitHubService {
+class GitHubServiceImpl implements GitHubService {
+
+    public Future<User> getUser() {
+        return CompletableFuture.completedFuture(new User("uysalk", "1"));
+    }
+
+    public Future<Stream<Repo>> getRepos(String userLogin) throws Exception {
+        return CompletableFuture.completedFuture(Stream.of(new Repo[]{new Repo(1, "Repo 1"), new Repo(2, "Repo 2")}));
+
+
+    }
+}
+
+class UnreilableGHService implements GitHubService {
 
     public Future<User> getUser() {
 
